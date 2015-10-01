@@ -1,0 +1,22 @@
+{
+  "name": "project2",
+  "version": "1.0.0",
+  "description": "E-Commerce App",
+  "main": "app.js",
+  "dependencies": {
+    "body-parser": "^1.13.3",
+    "express": "^4.13.3",
+    "express-mysql-session": "^0.4.1",
+    "express-session": "^1.11.3",
+    "forever": "^0.15.1",
+    "mysql": "^2.9.0",
+    "squel": "^4.2.0",
+    "validator": "^4.0.6"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC"
+}
