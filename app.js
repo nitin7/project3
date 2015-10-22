@@ -11,11 +11,10 @@ var app = express();
 app.set('view engine', 'jade');
 
 var options = {
-    host: 'localhost',
-    user: 'nitin',
-    password: '',
-    database: 'test',
-    port: 3307
+    host: 'project4.cqwiwu0cbhuq.us-east-1.rds.amazonaws.com',
+    user: 'root',
+    password: 'password',
+    database: 'project4'
 };
 
 var sessionStore = new SessionStore(options);
@@ -58,7 +57,6 @@ connection.query('CREATE TABLE IF NOT EXISTS users(' + 'uName VARCHAR(30),' + 'p
 
 app.post('/registerUser', function(req, res) {
     var r = req.body;
-    console.log(req);
     var ret = {};
     if (r.fname == null || r.lname == null || r.address == null || r.city == null || r.state == null || r.zip == null || r.email == null || r.username == null || r.password == null){
         ret['message'] = "there was a problem with your registration";
@@ -67,14 +65,23 @@ app.post('/registerUser', function(req, res) {
         ret['message'] = "there was a problem with your registration";
         res.json(ret);
     }else{
-        var query = squel.insert().into("users").set("uName", r.username).set("pWord", r.password).set("admin", "FALSE").set("fname", r.fname).set("lname", r.lname).set("address", r.address).set("state", r.state).set("city", r.city).set("zip", r.zip).set("email", r.email).toString();
-        connection.query(query, function(err, results) {
-            if (!err) {
-                ret['message'] = "Your account has been registered";
-            } else {
+        var check = squel.select().from("users").where("(fname = ? AND lname = ?) OR (uName = ?)", r.fname, r.lname, r.username).toString();
+        connection.query(check, function(err, results){
+            //console.log(results);
+            if(results.length == 0){
+                var query = squel.insert().into("users").set("uName", r.username).set("pWord", r.password).set("admin", "FALSE").set("fname", r.fname).set("lname", r.lname).set("address", r.address).set("state", r.state).set("city", r.city).set("zip", r.zip).set("email", r.email).toString();
+                connection.query(query, function(err, results) {
+                    if (!err) {
+                        ret['message'] = "Your account has been registered ";
+                    } else {
+                        ret['message'] = "there was a problem with your registration";
+                    }
+                    res.json(ret);
+                });
+            }else{
                 ret['message'] = "there was a problem with your registration";
+                res.json(ret);
             }
-            res.json(ret);
         });
     }
 });
@@ -82,8 +89,8 @@ app.post('/registerUser', function(req, res) {
 app.post('/login',  function(req, res) {
     var r = req.body;
     var ret = {};
-    var user = ['updateInfo', 'getProducts'];
-    var admin = ['updateInfo', 'getProducts', 'viewUsers', 'modifyProduct'];
+    var user = ['/updateInfo', '/getProducts'];
+    var admin = ['/updateInfo', '/getProducts', '/viewUsers', '/modifyProducts'];
     if (r.username == null || r.password == null){
         ret['err_message'] = "That username and password combination was not correct";
         res.json(ret);
@@ -206,7 +213,7 @@ app.get('/viewUsers', function(req, res) {
         if (!(req.param('lname') === undefined || req.param('lname').length === 0)) {
             lName = "%" + req.param('lname').trim() + "%";
         }
-        var query = squel.select().from("users").where("fName LIKE ? AND lName LIKE ?", fName, lName).toString();
+        var query = squel.select().from("users").field("fname").field("lname").where("fName LIKE ? AND lName LIKE ?", fName, lName).toString();
         connection.query(query, function(err, rows, fields) {
             //write results data as table for viewing
             //only fname and lname
@@ -230,7 +237,7 @@ app.get('/getProducts', function(req, res) {
     if (!(req.param('keyword') === undefined || req.param('keyword').length === 0)) {
         keyword = "%" + req.param('keyword').trim() + "%";
     }
-    var query = squel.select().from("productdata").field("Id").field("ASIN").field("title").field("description").where("Id LIKE ? AND categories LIKE ? AND (title LIKE ? OR description LIKE ?)", productID, category, keyword, keyword).toString();
+    var query = squel.select().from("productdata").field("title").where("Id LIKE ? AND categories LIKE ? AND (title LIKE ? OR description LIKE ?)", productID, category, keyword, keyword).toString();
     connection.query(query, function(err, rows, fields) {
         //write results data as table for viewing
         ret['product_list'] = rows;
