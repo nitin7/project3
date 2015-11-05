@@ -301,7 +301,6 @@ app.post('/buyProduct', function(req, res){
 		res.json(ret);
 	}else{
 		var pid = req.body.productId;
-		var query = squel.select().from("productdata").field("count").where("Id = ?", pid).toString();
 
         var collection = db.collection('productdata');
 
@@ -311,12 +310,12 @@ app.post('/buyProduct', function(req, res){
 				ret['message'] = "that product is out of stock";
 				res.json(ret);
 			}else{
-                collection.update({Id: parseInt(pid)}, {$set: {quantity: (count - 1)}}, {multi: true}, function (err, done) {
+                collection.update({Id: parseInt(pid)}, {$set: {count: (count - 1)}}, {multi: true}, function (err, done) {
                     if(err || !done){
                         ret['message'] = "there was a problem with this action";
                         res.json(ret);
                     }else{
-                        db.orders.update({pid: parseInt(pid)}, {pid: parseInt(pid), sold: parseInt(5 - (count - 1))}, {upsert: true}, function (err, rows) {
+                        db.orders.update({productId: parseInt(pid)}, {productId: parseInt(pid), quantitySold: parseInt(5 - (count - 1))}, {upsert: true}, function (err, rows) {
                             ret['message'] = "the purchase has been made successfully";
                             res.json(ret);
                         });
