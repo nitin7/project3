@@ -3,21 +3,18 @@ var mysql = require('mysql');
 var squel = require("squel");
 var session = require('express-session')
 var bodyParser = require('body-parser');
-var SessionStore = require('express-mysql-session');
+
 var vldt = require('validator');
+
+var MongoStore = require('connect-mongo')(session);
+var mongojs = require('mongojs');
+var mongoURL = 'mongodb://localhost/proj5';
+db = mongojs(mongoURL,['productdata', 'users', 'orders'], {authMechanism: 'ScramSHA1'});
+
 
 
 var app = express();
 app.set('view engine', 'jade');
-
-var options = {
-    host: 'project4.cqwiwu0cbhuq.us-east-1.rds.amazonaws.com',
-    user: 'root',
-    password: 'password',
-    database: 'project4'
-};
-
-var sessionStore = new SessionStore(options);
 
 var sess = {
     key: 'keyboard',
@@ -27,7 +24,12 @@ var sess = {
         maxAge: 15 * 60 * 1000,
         expires: false
     },
-    store: sessionStore,
+    store: new MongoStore({
+        db: 'proj5session',
+        host: 'localhost',
+        collection: 'session',
+        autoReconnect: true
+    }),
     resave: true,
     saveUninitialized: false,
     rolling: true
@@ -35,25 +37,60 @@ var sess = {
 
 
 app.use(session(sess));
-app.use(bodyParser());
+app.use(bodyParser.urlencoded({extended: true}));
+app.use(bodyParser.json());
 app.use(express.static(__dirname + '/public'));
 
-var connection = mysql.createConnection(options);
 
-
-connection.connect();
-
-connection.query('drop table if exists users');
-connection.query('CREATE TABLE IF NOT EXISTS users(' + 'uName VARCHAR(30),' + 'pWord VARCHAR(30),' + 'admin VARCHAR(30),' + 'fName VARCHAR(60),' + 'lName VARCHAR(60),' + 'address VARCHAR(60),' + 'city VARCHAR(60),' + 'state VARCHAR(60),' + 'zip VARCHAR(60),' + 'email VARCHAR(60),' + 'PRIMARY KEY(uName)' + ')', function(err) {
-    if (err) throw err;
-    connection.query('INSERT INTO users values ("hsmith","smith","FALSE","Henry", "Smith", "1234 Abcd Ave", "San Francisco", "CA", "12345", "1@gmail.com")');
-    connection.query('INSERT INTO users values ("tbucktoo","bucktoo","FALSE","Tim", "Bucktoo", "1234 Abcd Ave", "San Francisco", "CA", "12345", "1@gmail.com")');
-        connection.query('INSERT INTO users values ("jadmin","admin","TRUE","Jimmy", "Admin", "1234 Abcd Ave", "San Francisco", "CA", "12345", "1@gmail.com")');
+var userdata1 = JSON.stringify({
+  uname: "hsmith",
+  pword: "smith",
+  admin: "FALSE",
+  fname: "Henry",
+  lname: "Smith",
+  address: "1234 Abcd Ave",
+  city: "San Francisco",
+  state: "CA",
+  zip: "12345",
+  email: "1@gmail.com"
 });
-//connection.query('drop table if exists productdata');
-// connection.query('CREATE TABLE IF NOT EXISTS productdata(' + 'Id VARCHAR(200),' + 'ASIN VARCHAR(200),' + 'title TEXT,' + 'description VARCHAR(100),' + 'categories TEXT,' + 'PRIMARY KEY(Id)' + ')', function(err) {
-//     if (err) throw err;
-// });
+
+var userdata2 = JSON.stringify({
+  uname: "tbucktoo",
+  pword: "bucktoo",
+  admin: "FALSE",
+  fname: "Tim",
+  lname: "Bucktoo",
+  address: "1234 Abcd Ave",
+  city: "San Francisco",
+  state: "CA",
+  zip: "12345",
+  email: "1@gmail.com"
+});
+
+var userdata3 = JSON.stringify({
+  uname: "jadmin",
+  pword: "admin",
+  admin: "TRUE",
+  fname: "Jimmy",
+  lname: "Admin",
+  address: "1234 Abcd Ave",
+  city: "San Francisco",
+  state: "CA",
+  zip: "12345",
+  email: "1@gmail.com"
+});
+
+var userss = db.collection('users');
+
+userss.update(JSON.stringify({uname:"hsmith"}), userdata1, JSON.stringify({upsert:true}), function(err){});
+userss.update(JSON.stringify({uname:"tbucktoo"}), userdata2, JSON.stringify({upsert:true}),function(err){});
+userss.update(JSON.stringify({uname:"jadmin"}), userdata3, JSON.stringify({upsert:true}),function(err){});
+
+app.get('/', function(req, res){
+    res.json({'message':'Server 1'});
+
+});
 
 app.post('/registerUser', function(req, res) {
     var r = req.body;
@@ -65,12 +102,10 @@ app.post('/registerUser', function(req, res) {
         ret['message'] = "there was a problem with your registration";
         res.json(ret);
     }else{
-        var check = squel.select().from("users").where("(fname = ? AND lname = ?) OR (uName = ?)", r.fname, r.lname, r.username).toString();
-        connection.query(check, function(err, results){
-            //console.log(results);
+        var collection = db.collection('users');
+        collection.find({$or: [{"uname": r.username}, {$and: [{"fname": r.fname, "lname": r.lname}]}, {$and: [{"uname": r.username, "pword": r.password}]}]}).toArray(function (err, results) {
             if(results.length == 0){
-                var query = squel.insert().into("users").set("uName", r.username).set("pWord", r.password).set("admin", "FALSE").set("fname", r.fname).set("lname", r.lname).set("address", r.address).set("state", r.state).set("city", r.city).set("zip", r.zip).set("email", r.email).toString();
-                connection.query(query, function(err, results) {
+                collection.insert({"uname": r.username, "pword": r.password, "email": r.email, "fname": r.fname, "lname": r.lname, "address": r.address, "city": r.city, "state": r.state, "zip": r.zip, "admin": "FALSE"}, function (err, rows) {
                     if (!err) {
                         ret['message'] = "Your account has been registered ";
                     } else {
@@ -89,16 +124,19 @@ app.post('/registerUser', function(req, res) {
 app.post('/login',  function(req, res) {
     var r = req.body;
     var ret = {};
-    var user = ['/updateInfo', '/getProducts'];
-    var admin = ['/updateInfo', '/getProducts', '/viewUsers', '/modifyProducts'];
+    var user = ['/updateInfo', '/getProducts', '/buyProduct'];
+    var admin = ['/updateInfo', '/getProducts', '/viewUsers', '/modifyProducts', '/buyProduct', '/getOrders'];
     if (r.username == null || r.password == null){
         ret['err_message'] = "That username and password combination was not correct";
         res.json(ret);
     }else{
-        var query = squel.select().from("users").where("uName = ? AND pWord = ?", r.username, r.password).toString();
-        connection.query(query, function(err, results) {
+        var collection = db.collection('users');
+        collection.find({"uname": r.username, "pword": r.password}).toArray(function (err, rows) {
+            results = rows;
+            //console.log(results);
             if (!err && results.length > 0) {
                 req.session.sessionID = r.username;
+                //console.log(r.username);
                 var entry = results[0];
                 if (entry.admin == "FALSE") {
                     req.session.admin = false;
@@ -138,40 +176,45 @@ app.post('/updateInfo', function(req, res) {
         var ret = {};
         var r = req.body;
         var adminsql = (req.session.admin) ? "TRUE" : "FALSE";
-        connection.query(squel.select().from("users").where("uName = ?", req.session.sessionID).toString(), function(err, results) {
-            var obj = results[0];
-            if(!r.username)
-                r.username = obj.uName;
-            if(!r.password)
-                r.password = obj.pWord;
-            if(!r.fname)
-                r.fname = obj.fName;
-            if(!r.lname)
-                r.lname = obj.lName;
-            if(!r.address)
-                r.address = obj.address;
-            if(!r.state)
-                r.state = obj.state;
-            if(!r.city)
-                r.city = obj.city;
-            if(!r.zip)
-                r.zip = obj.zip;
-            if(!r.email)
-                r.email = obj.email;
-            if(!vldt.isInt(r.zip, {min: 10000, max: 99999}) || !vldt.isEmail(r.email) || !vldt.isAlpha(r.state) || (r.state.length != 2)){
+        var collection = db.collection('users');
+        collection.find({'uname': req.session.sessionID}).toArray(function (err, results) {
+            if(results.length == 0 || err){
                 ret['message'] = "There was a problem with this action";
                 res.json(ret);
             }else{
-                var query = squel.update().table("users").set("uName", r.username).set("pWord", r.password).set("admin", adminsql).set("fName", r.fname).set("lName", r.lname).set("address", r.address).set("state", r.state).set("city", r.city).set("zip", r.zip).set("email", r.email).where("uName = ?", req.session.sessionID).toString();
-                req.session.sessionID= r.username;
-                connection.query(query, function(err, results) {
-                    if (err) {
-                        ret['message'] = "There was a problem with this action";
-                    } else {
-                        ret['message'] = "Your information has been updated";
-                    }
+                var obj = results[0];
+                if(!r.username)
+                    r.username = obj.uname;
+                if(!r.password)
+                    r.password = obj.pword;
+                if(!r.fname)
+                    r.fname = obj.fname;
+                if(!r.lname)
+                    r.lname = obj.lname;
+                if(!r.address)
+                    r.address = obj.address;
+                if(!r.state)
+                    r.state = obj.state;
+                if(!r.city)
+                    r.city = obj.city;
+                if(!r.zip)
+                    r.zip = obj.zip;
+                if(!r.email)
+                    r.email = obj.email;
+                if(!vldt.isInt(r.zip, {min: 10000, max: 99999}) || !vldt.isEmail(r.email) || !vldt.isAlpha(r.state) || (r.state.length != 2)){
+                    ret['message'] = "There was a problem with this action";
                     res.json(ret);
-                });
+                }else{
+                    collection.update({'uname': req.session.sessionID},{$set:{"uname": r.username, "pword": r.password, "email": r.email, "fname": r.fname, "lname": r.lname, "address": r.address, "city": r.city, "state": r.state, "zip": r.zip,  "admin": adminsql }}, {multi: true}, function (err, rows) {
+                        if (err) {
+                            ret['message'] = "There was a problem with this action";
+                        } else {
+                            req.session.sessionID = r.username;
+                            ret['message'] = "Your information has been updated";
+                        }
+                        res.json(ret);
+                    });
+                }
             }
         });
     }
@@ -187,9 +230,11 @@ app.post('/modifyProduct', function(req, res) {
         var productDescription = req.body.productDescription;
         var productTitle = req.body.productTitle;
         var query = squel.update().table("productdata").set("description", productDescription).set("title", productTitle).where("Id = ?", productID).toString();
-        connection.query(query, function(err, results) {
+        var collection = db.collection('productdata');
+
+        collection.update({Id: parseInt(productID)}, {$set: {title: productTitle, groups: productDescription}}, {multi: true}, function (err, done) {
             //write results data as table for viewing
-            if (err) {
+            if (err || !done) {
                 ret['message'] = "There was a problem with this action";
             } else {
                 ret['message'] = "The product information has been updated";
@@ -205,45 +250,101 @@ app.get('/viewUsers', function(req, res) {
     } else {
         //By default, we want to get all the users if no search
         //term is specified
-        var fName = "%";
-        var lName = "%";
+        var fname = ".*";
+        var lname = ".*";
         if (!(req.param('fname') === undefined || req.param('fname').length === 0)) {
-            fName = "%" + req.param('fname').trim() + "%";
+            fname = ".*" + req.param('fname').trim() + ".*";
         }
         if (!(req.param('lname') === undefined || req.param('lname').length === 0)) {
-            lName = "%" + req.param('lname').trim() + "%";
+            lname = ".*" + req.param('lname').trim() + ".*";
         }
-        var query = squel.select().from("users").field("fname").field("lname").where("fName LIKE ? AND lName LIKE ?", fName, lName).toString();
-        connection.query(query, function(err, rows, fields) {
+        var collection = db.collection('users');
+        collection.find({$and: [{fname: {$regex: fname}}, {lname: {$regex: lname}}]}, {_id: 0, fname: 1, lname: 1}).toArray(function (err, results) {
             //write results data as table for viewing
             //only fname and lname
-            ret['user_list'] = rows;
+            ret['user_list'] = results;
             res.json(ret);
         });
     }
 });
 app.get('/getProducts', function(req, res) {
     var ret = {};
-    var productID = "%";
-    var category = "%";
-    var keyword = "%";
+    var productID = ".*";
+    var category = ".*";
+    var keyword = ".*";
+    var exp = {};
 
     if (!(req.param('productId') === undefined || req.param('productId').length === 0)) {
         productID = req.param('productId').trim();
+        exp = {Id: parseInt(productID)};
     }
     if (!(req.param('category') === undefined || req.param('category').length === 0)) {
-        category = "%" + req.param('category').trim() + "%";
+        category = ".*" + req.param('category').trim() + ".*";
     }
     if (!(req.param('keyword') === undefined || req.param('keyword').length === 0)) {
-        keyword = "%" + req.param('keyword').trim() + "%";
+        keyword = ".*" + req.param('keyword').trim() + ".*";
     }
-    var query = squel.select().from("productdata").field("title").where("Id LIKE ? AND categories LIKE ? AND (title LIKE ? OR description LIKE ?)", productID, category, keyword, keyword).toString();
-    connection.query(query, function(err, rows, fields) {
+    //var query = squel.select().from("productdata").field("title").where("Id LIKE ? AND categories LIKE ? AND (title LIKE ? OR description LIKE ?)", productID, category, keyword, keyword).toString();
+    var collection = db.collection('productdata');
+    //console.log(exp);
+    collection.find({$and: [exp, {categories: {$regex: category}}, {$or: [{title: {$regex: keyword}}, {description: {$regex: keyword}}]}]}).toArray(function (err, results) {
         //write results data as table for viewing
-        ret['product_list'] = rows;
+        ret['product_list'] = results;
         res.json(ret);
     });
 });
+
+app.post('/buyProduct', function(req, res){
+	var ret = {};
+	if (!req.session.sessionID){
+		ret['message'] = "you need to log in prior to buying a product";
+		res.json(ret);
+	}else{
+		var pid = req.body.productId;
+		var query = squel.select().from("productdata").field("count").where("Id = ?", pid).toString();
+
+        var collection = db.collection('productdata');
+
+		collection.find({Id: parseInt(pid)}).toArray(function (err, results) {
+			var count = results[0].count;
+			if(count == 0){
+				ret['message'] = "that product is out of stock";
+				res.json(ret);
+			}else{
+                collection.update({Id: parseInt(pid)}, {$set: {quantity: (count - 1)}}, {multi: true}, function (err, done) {
+                    if(err || !done){
+                        ret['message'] = "there was a problem with this action";
+                        res.json(ret);
+                    }else{
+                        db.orders.update({pid: parseInt(pid)}, {pid: parseInt(pid), sold: parseInt(5 - (count - 1))}, {upsert: true}, function (err, rows) {
+                            ret['message'] = "the purchase has been made successfully";
+                            res.json(ret);
+                        });
+                    }   
+                });
+		    }
+        }); 
+	}
+});
+
+app.post('/getOrders', function(req, res){
+	var ret = {};
+	if (!req.session.sessionID || !req.session.admin) {
+        ret['message'] = "you need to log in as an admin prior to making the request";
+        res.json(ret);
+    }else{
+    	var query = squel.select().from("orders").toString();
+    	var orders = db.collection('orders');
+        orders.find().toArray(function (err, results) {
+    		ret['list'] = results;
+    		ret['message'] = "the request was successful";
+    		res.json(ret);
+    	});
+    }
+    return ret;
+});
+
+
 var server = app.listen(3000, function() {
     var host = server.address().address;
     var port = server.address().port;
