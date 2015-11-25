@@ -42,51 +42,6 @@ app.use(bodyParser.json());
 app.use(express.static(__dirname + '/public'));
 
 
-var userdata1 = JSON.stringify({
-  uname: "hsmith",
-  pword: "smith",
-  admin: "FALSE",
-  fname: "Henry",
-  lname: "Smith",
-  address: "1234 Abcd Ave",
-  city: "San Francisco",
-  state: "CA",
-  zip: "12345",
-  email: "1@gmail.com"
-});
-
-var userdata2 = JSON.stringify({
-  uname: "tbucktoo",
-  pword: "bucktoo",
-  admin: "FALSE",
-  fname: "Tim",
-  lname: "Bucktoo",
-  address: "1234 Abcd Ave",
-  city: "San Francisco",
-  state: "CA",
-  zip: "12345",
-  email: "1@gmail.com"
-});
-
-var userdata3 = JSON.stringify({
-  uname: "jadmin",
-  pword: "admin",
-  admin: "TRUE",
-  fname: "Jimmy",
-  lname: "Admin",
-  address: "1234 Abcd Ave",
-  city: "San Francisco",
-  state: "CA",
-  zip: "12345",
-  email: "1@gmail.com"
-});
-
-var userss = db.collection('users');
-
-userss.update(JSON.stringify({uname:"hsmith"}), userdata1, JSON.stringify({upsert:true}), function(err){});
-userss.update(JSON.stringify({uname:"tbucktoo"}), userdata2, JSON.stringify({upsert:true}),function(err){});
-userss.update(JSON.stringify({uname:"jadmin"}), userdata3, JSON.stringify({upsert:true}),function(err){});
-
 app.get('/', function(req, res){
     res.json({'message':'Server 1'});
 
@@ -95,19 +50,22 @@ app.get('/', function(req, res){
 app.post('/registerUser', function(req, res) {
     var r = req.body;
     var ret = {};
-    if (r.fname == null || r.lname == null || r.address == null || r.city == null || r.state == null || r.zip == null || r.email == null || r.username == null || r.password == null){
+    if (r.fname.length < 2 || r.lname.length < 2 || r.fname == null || r.lname == null || r.address == null || r.city == null || r.state == null || r.email == null || r.username == null || r.password == null){
         ret['message'] = "there was a problem with your registration";
         res.json(ret);
-    }else if(!vldt.isInt(r.zip, {min: 10000, max: 99999}) || !vldt.isEmail(r.email) || !vldt.isAlpha(r.state) || (r.state.length != 2)){
+    }else if (r.fname == '' || r.lname == '' || r.address == '' || r.city == '' || r.state == '' || r.email == '' || r.username == '' || r.password == ''){
+        ret['message'] = "there was a problem with your registration";
+        res.json(ret);
+    }else if(!vldt.isEmail(r.email)){
         ret['message'] = "there was a problem with your registration";
         res.json(ret);
     }else{
         var collection = db.collection('users');
-        collection.find({$or: [{"uname": r.username}, {$and: [{"fname": r.fname, "lname": r.lname}]}, {$and: [{"uname": r.username, "pword": r.password}]}]}).toArray(function (err, results) {
+        collection.find({$or: [{$and: [{"fname": r.fname, "lname": r.lname}]}, {$and: [{"uname": r.username, "pword": r.password}]}]}).toArray(function (err, results) {
             if(results.length == 0){
-                collection.insert({"uname": r.username, "pword": r.password, "email": r.email, "fname": r.fname, "lname": r.lname, "address": r.address, "city": r.city, "state": r.state, "zip": r.zip, "admin": "FALSE"}, function (err, rows) {
+                collection.insert({"uname": r.username, "pword": r.password, "email": r.email, "fname": r.fname, "lname": r.lname, "address": r.address, "city": r.city, "state": r.state, "admin": "FALSE"}, function (err, rows) {
                     if (!err) {
-                        ret['message'] = "Your account has been registered ";
+                        ret['message'] = "Your account has been registered";
                     } else {
                         ret['message'] = "there was a problem with your registration";
                     }
@@ -131,7 +89,7 @@ app.post('/login',  function(req, res) {
         res.json(ret);
     }else{
         var collection = db.collection('users');
-        collection.find({"uname": r.username, "pword": r.password}).toArray(function (err, rows) {
+        collection.find({$and: [{"uname": r.username}, {"pword": r.password}]}).toArray(function (err, rows) {
             results = rows;
             //console.log(results);
             if (!err && results.length > 0) {
@@ -197,15 +155,13 @@ app.post('/updateInfo', function(req, res) {
                     r.state = obj.state;
                 if(!r.city)
                     r.city = obj.city;
-                if(!r.zip)
-                    r.zip = obj.zip;
                 if(!r.email)
                     r.email = obj.email;
-                if(!vldt.isInt(r.zip, {min: 10000, max: 99999}) || !vldt.isEmail(r.email) || !vldt.isAlpha(r.state) || (r.state.length != 2)){
+                if(!vldt.isEmail(r.email)){
                     ret['message'] = "There was a problem with this action";
                     res.json(ret);
                 }else{
-                    collection.update({'uname': req.session.sessionID},{$set:{"uname": r.username, "pword": r.password, "email": r.email, "fname": r.fname, "lname": r.lname, "address": r.address, "city": r.city, "state": r.state, "zip": r.zip,  "admin": adminsql }}, {multi: true}, function (err, rows) {
+                    collection.update({'uname': req.session.sessionID},{$set:{"uname": r.username, "pword": r.password, "email": r.email, "fname": r.fname, "lname": r.lname, "address": r.address, "city": r.city, "state": r.state, "admin": adminsql }}, {multi: true}, function (err, rows) {
                         if (err) {
                             ret['message'] = "There was a problem with this action";
                         } else {
@@ -301,22 +257,23 @@ app.post('/buyProduct', function(req, res){
 		res.json(ret);
 	}else{
 		var pid = req.body.productId;
+		var query = squel.select().from("productdata").field("count").where("Id = ?", pid).toString();
 
         var collection = db.collection('productdata');
 
 		collection.find({Id: parseInt(pid)}).toArray(function (err, results) {
 			var count = results[0].count;
 			if(count == 0){
-				ret['message'] = "that product is out of stock";
+				ret['message'] = "product is out of stock";
 				res.json(ret);
 			}else{
-                collection.update({Id: parseInt(pid)}, {$set: {count: (count - 1)}}, {multi: true}, function (err, done) {
+                collection.update({Id: parseInt(pid)}, {$set: {quantity: (count - 1)}}, {multi: true}, function (err, done) {
                     if(err || !done){
                         ret['message'] = "there was a problem with this action";
                         res.json(ret);
                     }else{
-                        db.orders.update({productId: parseInt(pid)}, {productId: parseInt(pid), quantitySold: parseInt(5 - (count - 1))}, {upsert: true}, function (err, rows) {
-                            ret['message'] = "the purchase has been made successfully";
+                        db.orders.update({pid: parseInt(pid)}, {pid: parseInt(pid), sold: parseInt(5 - (count - 1))}, {upsert: true}, function (err, rows) {
+                            ret['message'] = "purchase has been made successfully";
                             res.json(ret);
                         });
                     }   
