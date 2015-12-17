@@ -94,6 +94,7 @@ app.post('/login',  function(req, res) {
             //console.log(results);
             if (!err && results.length > 0) {
                 req.session.sessionID = r.username;
+                req.session.password = r.password;
                 //console.log(r.username);
                 var entry = results[0];
                 if (entry.admin == "FALSE") {
@@ -108,6 +109,8 @@ app.post('/login',  function(req, res) {
             } else {
                 ret['err_message'] = "That username and password combination was not correct";
                 res.json(ret);
+                console.log("FAILED LOGIN FOR: "+r.username + " " + r.password);
+                console.log(ret);
             }
         });
     }
@@ -135,7 +138,7 @@ app.post('/updateInfo', function(req, res) {
         var r = req.body;
         var adminsql = (req.session.admin) ? "TRUE" : "FALSE";
         var collection = db.collection('users');
-        collection.find({'uname': req.session.sessionID}).toArray(function (err, results) {
+        collection.find({$and:[{'uname': req.session.sessionID}, {'pword': req.session.password}]}).toArray(function (err, results) {
             if(results.length == 0 || err){
                 ret['message'] = "There was a problem with this action";
                 res.json(ret);
@@ -161,7 +164,7 @@ app.post('/updateInfo', function(req, res) {
                     ret['message'] = "There was a problem with this action";
                     res.json(ret);
                 }else{
-                    collection.update({'uname': req.session.sessionID},{$set:{"uname": r.username, "pword": r.password, "email": r.email, "fname": r.fname, "lname": r.lname, "address": r.address, "city": r.city, "state": r.state, "admin": adminsql }}, {multi: true}, function (err, rows) {
+                    collection.update({$and:[{'uname': req.session.sessionID}, {'pword': req.session.password}]},{$set:{"uname": r.username, "pword": r.password, "email": r.email, "fname": r.fname, "lname": r.lname, "address": r.address, "city": r.city, "state": r.state, "admin": adminsql }}, {multi: true}, function (err, rows) {
                         if (err) {
                             ret['message'] = "There was a problem with this action";
                         } else {
@@ -300,6 +303,75 @@ app.post('/getOrders', function(req, res){
     return ret;
 });
 
+
+app.post('/alsoBought', function(req, res){
+    var collection = db.collection('edges');
+    var ret = {};
+   	if (!req.session.sessionID || !req.session.admin) {
+	    collection.insert({id1: req.body.productId1, id2: req.body.productId2}, function(err,rows){
+	       if(err){
+	           ret['message'] = 'there was a problem processing the request';
+	           res.json(ret);
+	       }else{
+	           ret['message'] = 'the request was successful';
+	       	   res.json(ret);
+	       }
+	    });
+	}else{
+		ret['message'] = 'there was a problem processing the request';
+		res.json(ret);
+	}
+});
+
+app.post('/getRecommendations', function(req, res){
+    var ret = {};
+	if (!req.session.sessionID){
+		ret['message'] = 'there was a problem processing the request';
+		res.json(ret);
+    }else{
+    	var collection = db.collection('edges');
+	    var result = [];
+	    collection.find({$or:[{id1: req.body.productId}, {id2: req.body.productId}]}).toArray(function(err, rows){
+	        if(!err && rows.length != 0) {
+	            var dict = {};
+	            for (var i = 0; i < rows.length; i++) {
+	            	var setid;
+	            	if(req.body.productId != rows[i].id1)
+	            		setid = rows[i].id1;
+	            	else
+	            		setid = rows[i].id2;
+	            	if (setid in dict)
+	            		dict[setid] = dict[setid] + 1;
+	            	else
+	            		dict[setid] = 1;
+	            }
+
+	            //Sorting
+	            var array = [];
+	            for(a in dict){
+ 					array.push([a,dict[a]])
+				}
+				array.sort(function(a,b){return b[1] - a[1]});
+
+				//Assignment
+				var looplen = (array.length > 5) ? 5 : array.length;
+				for (var i = 0; i < looplen; i++){
+					result[i] = array[i][0];
+				}
+
+	            ret['message'] = 'the request was successful';
+	            ret['relatedProducts'] = result;
+	            ret['relatedProducts:'] = result;
+	            res.json(ret);
+	        }
+	        else{
+	            ret['message'] = 'there was a problem processing the request';
+				res.json(ret);
+	        }
+
+	    });
+    }
+});
 
 var server = app.listen(3000, function() {
     var host = server.address().address;
